@@ -23,9 +23,9 @@ class Plotter():
         pass
 
 
-    def plot_retrieval_TP_profiles(self, retrieval_result, plot_samples=False, plot_1sigma_bounds=True, num_samples=100, prefix=None):
+    def plot_retrieval_TP_profiles(self, retrieval_result, plot_samples=False, plot_1sigma_bounds=True, plot_median=True, num_samples=100, prefix=None):
         """
-        Input a RetrievalResult object to make a plot of the best fit temperature profile 
+        Input a RetrievalResult object to make a plot of the best fit temperature profile
         and 1 sigma bounds for the profile and/or plot samples of the temperature profile.
         """
         assert(isinstance(retrieval_result, RetrievalResult))
@@ -53,18 +53,21 @@ class Plotter():
 
         plt.figure()
         if plot_samples:
-            plt.plot(np.array(temperature_arr).T, profile_pressures / BAR_TO_PASCALS, color='b', alpha=0.25, zorder=2, label='samples') 
+            plt.plot(np.array(temperature_arr).T, profile_pressures / BAR_TO_PASCALS, color='b', alpha=0.25, zorder=2, label='samples')
         if plot_1sigma_bounds:
             plt.fill_betweenx(profile_pressures / BAR_TO_PASCALS, np.percentile(temperature_arr, 16, axis=0),
-                            np.percentile(temperature_arr, 84, axis=0), color='0.1', alpha=0.25, zorder=1, label='1$\\sigma$ bounds')  
+                            np.percentile(temperature_arr, 84, axis=0), color='0.1', alpha=0.25, zorder=1, label='1$\\sigma$ bounds')
+        if plot_median:
+            plt.plot(np.percentile(temperature_arr, 50., axis=0), profile_pressures / BAR_TO_PASCALS,
+                            color='r', zorder=3, label='Median')
 
         params_dict = retrieval_result.fit_info._interpret_param_array(retrieval_result.best_fit_params)
         t_p_profile.set_from_params_dict(profile_type, params_dict)
-        plt.plot(xp.cpu(t_p_profile.temperatures), profile_pressures / BAR_TO_PASCALS, zorder=3, color='r', label='best fit')
+        #plt.plot(xp.cpu(t_p_profile.temperatures), profile_pressures / BAR_TO_PASCALS, zorder=3, color='r', label='best fit')
 
-        plt.yscale('log')   
+        plt.yscale('log')
         plt.ylim(min(profile_pressures / BAR_TO_PASCALS), max(profile_pressures / BAR_TO_PASCALS))
-        plt.gca().invert_yaxis()               
+        plt.gca().invert_yaxis()
         plt.xlabel("Temperature (K)")
         plt.ylabel("Pressure/bars")
         plt.legend()
@@ -75,7 +78,7 @@ class Plotter():
 
     def plot_retrieval_corner(self, retrieval_result, filename=None, **args):
         """
-        Input a RetrievalResult object to make a corner plot for the 
+        Input a RetrievalResult object to make a corner plot for the
         posteriors of the fitted parameters.
         """
         assert(isinstance(retrieval_result, RetrievalResult))
@@ -88,7 +91,7 @@ class Plotter():
             fig = corner.corner(retrieval_result.equal_samples,
                                 range=[0.99] * retrieval_result.equal_samples.shape[1],
                                 show_titles=True,
-                                labels=retrieval_result.fit_info.fit_param_names, **args)                
+                                labels=retrieval_result.fit_info.fit_param_names, **args)
         elif retrieval_result.retrieval_type == "emcee":
             fig = corner.corner(retrieval_result.flatchain,
                                 range=[0.99] * retrieval_result.flatchain.shape[1],
@@ -103,7 +106,7 @@ class Plotter():
     def plot_retrieval_transit_spectrum(self, retrieval_result, prefix=None):
         """
         Input a RetrievalResult object to make a plot of the data,
-        best fit transit model both at native resolution and data's resolution, 
+        best fit transit model both at native resolution and data's resolution,
         and a 1 sigma range for models.
         """
         assert(isinstance(retrieval_result, RetrievalResult))
@@ -115,9 +118,9 @@ class Plotter():
         plt.fill_between(METRES_TO_UM * retrieval_result.best_fit_transit_dict["unbinned_wavelengths"],
                             lower_spectrum,
                             upper_spectrum,
-                            color="#f2c8c4", zorder=2)            
+                            color="#f2c8c4", zorder=2)
         plt.plot(METRES_TO_UM * retrieval_result.best_fit_transit_dict["unbinned_wavelengths"],
-                    retrieval_result.best_fit_transit_dict["unbinned_depths"] * 
+                    retrieval_result.best_fit_transit_dict["unbinned_depths"] *
                     retrieval_result.best_fit_transit_dict['unbinned_correction_factors'],
                     color='r', label="Calculated (unbinned)", zorder=3)
         plt.errorbar(METRES_TO_UM * retrieval_result.transit_wavelengths,
@@ -126,8 +129,8 @@ class Plotter():
                         fmt='.', color='k', label="Observed", zorder=5)
         plt.scatter(METRES_TO_UM * retrieval_result.transit_wavelengths,
                     retrieval_result.best_fit_transit_depths,
-                    color='b', label="Calculated (binned)", zorder=4)                        
-                            
+                    color='b', label="Calculated (binned)", zorder=4)
+
         plt.xlabel("Wavelength ($\mu m$)")
         plt.ylabel("Transit depth")
         plt.xscale('log')
@@ -140,12 +143,12 @@ class Plotter():
     def plot_retrieval_eclipse_spectrum(self, retrieval_result, prefix=None):
         """
         Input a RetrievalResult object to make a plot of the data,
-        best fit eclipse model both at native resolution and data's resolution, 
+        best fit eclipse model both at native resolution and data's resolution,
         and a 1 sigma range for models.
         """
         assert(isinstance(retrieval_result, RetrievalResult))
         assert(retrieval_result.eclipse_bins is not None)
-    
+
         plt.figure(figsize=(16,6))
         lower_spectrum = np.percentile(retrieval_result.random_eclipse_depths, 16, axis=0)
         upper_spectrum = np.percentile(retrieval_result.random_eclipse_depths, 84, axis=0)
@@ -179,13 +182,13 @@ class Plotter():
         to plot optical depth as a function of wavelength and pressure.
         """
         plt.figure(figsize=(6,4))
-        
+
         if 'tau_los' in depth_dict.keys():
-            plt.contourf(depth_dict['unbinned_wavelengths'] * METRES_TO_UM, 
+            plt.contourf(depth_dict['unbinned_wavelengths'] * METRES_TO_UM,
                          np.log10(0.5 * (depth_dict['P_profile'][1:] + depth_dict['P_profile'][:-1]) / BAR_TO_PASCALS), np.log10(depth_dict['tau_los'].T), cmap='magma_r')
             fname = '_transit'
         elif 'taus' in depth_dict.keys():
-            plt.contourf(depth_dict['unbinned_wavelengths'] * METRES_TO_UM, 
+            plt.contourf(depth_dict['unbinned_wavelengths'] * METRES_TO_UM,
                          np.log10(0.5 * (depth_dict['P_profile'][1:] + depth_dict['P_profile'][:-1]) / BAR_TO_PASCALS), np.log10(depth_dict['taus'].T), cmap='magma_r')
             fname = '_eclipse'
         else:
@@ -206,8 +209,8 @@ class Plotter():
         """
         Input an eclipse depth dictionary created by the EclipseDepthCalculator
         to plot emission contribution function as a function of wavelength and pressure.
-        The log_scale parameter allows the user to toggle between plotting of the contribution 
-        function in log or linear scale. 
+        The log_scale parameter allows the user to toggle between plotting of the contribution
+        function in log or linear scale.
         """
         assert('contrib' in eclipse_depth_dict.keys())
 
@@ -218,7 +221,7 @@ class Plotter():
             contrib_func = eclipse_depth_dict['contrib'].T
 
         plt.figure(figsize=(6,4))
-        plt.contourf(eclipse_depth_dict['unbinned_wavelengths'] * METRES_TO_UM, 
+        plt.contourf(eclipse_depth_dict['unbinned_wavelengths'] * METRES_TO_UM,
                          np.log10(0.5 * (eclipse_depth_dict['P_profile'][1:] + eclipse_depth_dict['P_profile'][:-1]) / BAR_TO_PASCALS), contrib_func, cmap='magma_r', vmin=np.nanmin(contrib_func), vmax=np.nanmax(contrib_func))
 
         cbar = plt.colorbar(location='right')
@@ -230,7 +233,7 @@ class Plotter():
         plt.tight_layout()
         if prefix is not None:
             plt.savefig(prefix + "_eclipse_contrib_func.png")
-        
+
 
     def plot_atm_abundances(self, atm_info, min_abund=1e-9, prefix=None):
         """

@@ -24,15 +24,15 @@ class AtmosphereSolver:
         del self.arguments["self"]
 
         get_data_if_needed()
-        
+
         self.absorption_data, self.mass_data, self.polarizability_data = read_species_data(
             resource_filename(__name__, "data/Absorption"),
             resource_filename(__name__, "data/species_info"),
             method, include_opacities, downsample)
 
         self.low_res_lambdas = load_numpy("data/low_res_lambdas.npy")
-        self.stellar_spectra_dict = load_dict_from_pickle("data/stellar_spectra.pkl")                    
-        
+        self.stellar_spectra_dict = load_dict_from_pickle("data/stellar_spectra.pkl")
+
         if method == "xsec":
             self.lambda_grid = xp.copy(load_numpy("data/wavelengths.npy")[::downsample])
             self.d_ln_lambda = xp.median(xp.diff(xp.log(self.lambda_grid)))
@@ -46,14 +46,14 @@ class AtmosphereSolver:
         for i in range(len(self.stellar_spectra)):
             self.stellar_spectra[i] = xp.interp(self.lambda_grid, self.low_res_lambdas, self.stellar_spectra[i])
         self.stellar_spectra = xp.array(self.stellar_spectra)
-            
+
         self.collisional_absorption_data = load_dict_from_pickle(
             "data/collisional_absorption.pkl")
-        
+
         for key in self.collisional_absorption_data:
             val = interp1d(self.lambda_grid, self.low_res_lambdas, self.collisional_absorption_data[key].T).T
             self.collisional_absorption_data[key] = xp.copy(val, order="C")
-            
+
         self.P_grid = load_numpy("data/pressures.npy")
         self.T_grid = load_numpy("data/temperatures.npy")
 
@@ -80,7 +80,7 @@ class AtmosphereSolver:
 
     def get_lambda_grid(self):
         return xp.cpu(self.lambda_grid)
-        
+
     def change_wavelength_bins(self, bins):
         """Specify wavelength bins, instead of using the full wavelength grid
         in self.lambda_grid.  This makes the code much faster, as
@@ -103,8 +103,8 @@ class AtmosphereSolver:
         bins = xp.array(bins)
         if self.wavelength_rebinned:
             self.__init__(**self.arguments)
-            self.wavelength_rebinned = False        
-            
+            self.wavelength_rebinned = False
+
         if bins is None:
             return
 
@@ -120,7 +120,7 @@ class AtmosphereSolver:
                 raise ValueError("Wavelength bin too narrow: {}-{} meters".format(start, end))
             if num_points <= 5:
                 print("WARNING: only {} points in {}-{} m bin. Results will be inaccurate".format(num_points, start, end))
-        
+
         self.wavelength_rebinned = True
         self.wavelength_bins = bins
 
@@ -135,10 +135,10 @@ class AtmosphereSolver:
         self.N_lambda = len(self.lambda_grid)
 
         self.stellar_spectra = self.stellar_spectra[:,cond]
-            
+
         for key in self.collisional_absorption_data:
             self.collisional_absorption_data[key] = self.collisional_absorption_data[key][:, cond]
-            
+
     def _get_k(self, T, wavelengths):
         wavelengths = 1e6 * xp.copy(wavelengths)
         alpha = 14391
@@ -156,7 +156,7 @@ class AtmosphereSolver:
         k_ff = xp.zeros(len(wavelengths))
         mid = xp.logical_and(wavelengths > 0.1823, wavelengths < 0.3645)
         red = wavelengths > 0.3645
-                    
+
         ff_matrix_red = xp.array([
             [0, 0, 0, 0, 0, 0],
             [2483.346, 285.827, -2054.291, 2827.776, -1341.537, 208.952],
@@ -176,27 +176,27 @@ class AtmosphereSolver:
             A_mid = xp.array([wavelengths[mid]**i for i in (2, 0, -1, -2, -3, -4)]).T
             #print(A_mid.shape)
             A_red = xp.array([wavelengths[red]**i for i in (2, 0, -1, -2, -3, -4)]).T
-            
+
             k_ff[mid] += 1e-29 * (5040/T)**((n+1)/2) * A_mid.dot(ff_matrix_mid[n-1])
             k_ff[red] += 1e-29 * (5040/T)**((n+1)/2) * A_red.dot(ff_matrix_red[n-1])
 
         k = k_bf + k_ff
-        
+
         #1e-3 to convert from cm^4/dyne to m^4/N
         return k * 1e-3
-    
+
     def _get_H_minus_absorption(self, abundances, P_cond, T_cond):
         absorption_coeff = xp.zeros(
             (int(xp.sum(T_cond)), int(xp.sum(P_cond)), self.N_lambda))
-        
+
         valid_Ts = self.T_grid[T_cond]
         trunc_el_abundances = abundances["el"][T_cond][:, P_cond]
         trunc_H_abundances = abundances["H"][T_cond][:, P_cond]
-        
+
         for t in range(len(valid_Ts)):
-            k = self._get_k(valid_Ts[t], self.lambda_grid)          
+            k = self._get_k(valid_Ts[t], self.lambda_grid)
             absorption_coeff[t] = k * (trunc_el_abundances[t] * trunc_H_abundances[t] * self.P_grid[P_cond]**2)[:, xp.newaxis] / (k_B * valid_Ts[t])
-                  
+
         return absorption_coeff
 
     def _get_gas_absorption(self, abundances, P_cond, T_cond, zero_opacities=[]):
@@ -205,7 +205,7 @@ class AtmosphereSolver:
 
         for species_name, species_abundance in abundances.items():
             assert(species_abundance.shape == (self.N_T, self.N_P))
-            
+
             if (species_name in self.absorption_data) and (species_name not in zero_opacities):
                 absorption_coeff += self.absorption_data[species_name][T_cond][:,P_cond] * species_abundance[T_cond][:,P_cond,xp.newaxis]
 
@@ -226,8 +226,8 @@ class AtmosphereSolver:
     def _get_collisional_absorption(self, abundances, P_cond, T_cond):
         absorption_coeff = xp.zeros(
             (int(xp.sum(T_cond)), int(xp.sum(P_cond)), self.N_lambda))
-        
-        n = self.P_grid[xp.newaxis, P_cond] / (k_B * self.T_grid[T_cond, xp.newaxis])        
+
+        n = self.P_grid[xp.newaxis, P_cond] / (k_B * self.T_grid[T_cond, xp.newaxis])
         for s1, s2 in self.collisional_absorption_data:
             if s1 in abundances and s2 in abundances:
                 n1 = (abundances[s1][T_cond, :][:, P_cond] * n)
@@ -246,7 +246,7 @@ class AtmosphereSolver:
             cross_secs = xp.ndimage.gaussian_filter(self.all_cross_secs[ri], kernel)
             if part_size < self.all_radii[3*int(kernel)] or part_size > self.all_radii[-3*int(kernel)]:
                 raise ValueError("part_size out of bounds: {} m".format(part_size))
-            
+
             eff_cross_section = xp.interp(
                 self.lambda_grid,
                 self.low_res_lambdas,
@@ -265,25 +265,25 @@ class AtmosphereSolver:
 
             n_bins = get_num_bins(log_dense_xs)
             log_x_hist = xp.cpu(xp.histogram(log_dense_xs, bins=n_bins)[1])
-            
+
             Qext_hist = self._mie_cache.get_and_update(ri, np.exp(log_x_hist))
             spl = scipy.interpolate.make_interp_spline(log_x_hist, Qext_hist)
-            spl = xp.interpolate.BSpline(xp.array(spl.t), xp.array(spl.c), spl.k)           
+            spl = xp.interpolate.BSpline(xp.array(spl.t), xp.array(spl.c), spl.k)
             Qext_intpl = spl(log_dense_xs).reshape((self.N_lambda, len(radii)))
             eff_cross_section = xp.trapz(probs*geometric_cross_section*Qext_intpl, z_scores)
 
-        n = max_number_density * xp.power(self.P_grid[P_cond] / max(self.P_grid[P_cond]), 1.0/frac_scale_height)        
+        n = max_number_density * xp.power(self.P_grid[P_cond] / max(self.P_grid[P_cond]), 1.0/frac_scale_height)
         absorption_coeff = n[xp.newaxis, :, xp.newaxis] * eff_cross_section[xp.newaxis, xp.newaxis, :]
         return absorption_coeff
 
     def _get_above_cloud_profiles(self, P_profile, T_profile, abundances,
                                   planet_mass, planet_radius, star_radius,
-                                  above_cloud_cond, T_star=None):        
+                                  above_cloud_cond, T_star=None):
         assert(len(P_profile) == len(T_profile))
         # First, get atmospheric weight profile
         mu_profile = xp.zeros(len(P_profile))
         atm_abundances = {}
-        
+
         for species_name in abundances:
             abund = 10.**regular_grid_interp(self.T_grid, xp.log10(self.P_grid), xp.log10(abundances[species_name]), T_profile, xp.log10(P_profile))
             atm_abundances[species_name] = abund
@@ -292,10 +292,10 @@ class AtmosphereSolver:
         radii, dr = _hydrostatic_solver._solve(
             P_profile, T_profile, self.ref_pressure, mu_profile, planet_mass,
             planet_radius, star_radius, above_cloud_cond, T_star)
-        
+
         for key in atm_abundances:
             atm_abundances[key] = atm_abundances[key][above_cloud_cond]
-            
+
         return radii, dr, atm_abundances, mu_profile
 
     def _get_abundances_array(self, logZ, CO_ratio, CH4_mult, custom_abundances, gases, vmrs):
@@ -322,7 +322,7 @@ class AtmosphereSolver:
                         "custom_abundances has array of invalid size")
             return custom_abundances
 
-        
+
         if custom_abundances is None and vmrs is not None and gases is not None:
             abundances = {}
             for i, g in enumerate(gases):
@@ -330,14 +330,14 @@ class AtmosphereSolver:
             return abundances
 
         raise ValueError("Unrecognized format for custom_abundances")
-   
+
 
     def _validate_params(self, T_profile, logZ, CO_ratio, cloudtop_pressure):
         T_profile = xp.atleast_1d(T_profile)
         if T_profile.min() < self.min_temperature or\
            T_profile.max() > self.max_temperature:
             raise AtmosphereError("Invalid temperatures in T/P profile")
-            
+
         if logZ is not None:
             minimum = self.abundance_getter.logZs.min()
             maximum = self.abundance_getter.logZs.max()
@@ -367,12 +367,12 @@ class AtmosphereSolver:
 
         if T_spot is None:
             T_spot = T_star
-            
+
         if T_star is None:
             unspotted_spectrum = xp.ones(len(lambdas))
             spot_spectrum = xp.ones(len(lambdas))
-            
-        elif T_star >= self.stellar_spectra_temps.min() and T_star <= self.stellar_spectra_temps.max() and not blackbody:            
+
+        elif T_star >= self.stellar_spectra_temps.min() and T_star <= self.stellar_spectra_temps.max() and not blackbody:
             unspotted_spectrum = interp1d(T_star, self.stellar_spectra_temps, self.stellar_spectra)
             spot_spectrum = interp1d(T_spot, self.stellar_spectra_temps, self.stellar_spectra)
             if len(spot_spectrum) != len(lambdas):
@@ -405,7 +405,7 @@ class AtmosphereSolver:
                        P_quench=1e-99,
                        min_abundance=1e-99, min_cross_sec=1e-99, zero_opacities=[]):
         self._validate_params(T_profile, logZ, CO_ratio, cloudtop_pressure)
-       
+
         abundances = self._get_abundances_array(
             logZ, CO_ratio, CH4_mult, custom_abundances, gases, vmrs)
 
@@ -421,7 +421,7 @@ class AtmosphereSolver:
         radii, dr, atm_abundances, mu_profile = self._get_above_cloud_profiles(
             P_profile, T_profile, abundances, planet_mass, planet_radius,
             star_radius, above_clouds, T_star)
-            
+
         P_profile = P_profile[above_clouds]
         T_profile = T_profile[above_clouds]
 
@@ -438,13 +438,13 @@ class AtmosphereSolver:
             if ri is not None:
                 if scattering_factor != 1 or scattering_slope != 4:
                     raise ValueError("Cannot use both parametric and Mie scattering at the same time")
-                
+
                 absorption_coeff += self._get_mie_scattering_absorption(
                     P_cond, T_cond, ri, part_size,
                     frac_scale_height, number_density, sigma=part_size_std)
                 absorption_coeff += self._get_scattering_absorption(
                     abundances, P_cond, T_cond)
-                
+
             else:
                 absorption_coeff += self._get_scattering_absorption(abundances,
                 P_cond, T_cond, scattering_factor, scattering_slope,
@@ -458,17 +458,17 @@ class AtmosphereSolver:
         # and temperature, so interpolation should be done with cross sections
         cross_secs = absorption_coeff / (self.P_grid[P_cond][xp.newaxis, :, xp.newaxis] / k_B / self.T_grid[T_cond][:, xp.newaxis, xp.newaxis])
         cross_secs[cross_secs < min_cross_sec] = min_cross_sec
-        
+
         if len(self.T_grid[T_cond]) == 1:
             cross_secs_atm = xp.exp(interp1d(xp.log(P_profile), xp.log(self.P_grid[P_cond]), xp.log(cross_secs[0])))
-        else:            
+        else:
             ln_cross = regular_grid_interp(
                 1.0/self.T_grid[T_cond][::-1],
                 xp.log(self.P_grid[P_cond]),
                 xp.log(cross_secs[::-1]),
                 1.0 / T_profile,
                 xp.log(P_profile))
-         
+
             cross_secs_atm = xp.exp(ln_cross)
 
         absorption_coeff_atm = cross_secs_atm * (P_profile / k_B / T_profile)[:, xp.newaxis]
@@ -479,5 +479,5 @@ class AtmosphereSolver:
                        "T_profile": T_profile,
                        "mu_profile": mu_profile,
                        "atm_abundances": atm_abundances}
-        
+
         return output_dict
