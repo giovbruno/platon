@@ -12,7 +12,7 @@ from ._interpolator_3D import interp1d, regular_grid_interp
 
 class EclipseDepthCalculator:
     def __init__(self, include_condensation=True, method="xsec", include_opacities=["CH4", "CO2", "CO", "H2O", "H2S", "HCN", "K", "Na", "NH3", "SO2", "TiO", "VO"], downsample=1,
-                 surface_library="Paragas"):
+                 surface_library="Paragas", ref_pressure=1e5):
         '''
         All physical parameters are in SI.
 
@@ -28,11 +28,11 @@ class EclipseDepthCalculator:
         method : string
             "xsec" for opacity sampling, "ktables" for correlated k
         '''
-        self.atm = AtmosphereSolver(include_condensation, method=method, include_opacities=include_opacities, downsample=downsample)
+        self.atm = AtmosphereSolver(include_condensation, ref_pressure=ref_pressure, method=method, include_opacities=include_opacities, downsample=downsample)
         self.tau_cache = xp.logspace(-6, 3, 1000)
         self.exp3_cache = expn(3, self.tau_cache)
         self.surface_library = surface_library
-        
+
         if surface_library not in ["HES2012", "Paragas"]:
             raise ValueError("The only surface libraries available are HES2012 and Paragas")
         self.hemi_refls = pd.read_csv(resource_filename(__name__, f"data/{surface_library}/hemi_refls.csv"))
@@ -44,14 +44,14 @@ class EclipseDepthCalculator:
         else:
             df = pd.read_csv(resource_filename(__name__, f"data/{surface_library}/f_relation_new_samples.csv"))
             self.redist_factors = {col: df[col][0] for col in df.columns}
-        
-        
+
+
     def calc_surface_flux(self, surface_type, stellar_fluxes, Rp_over_Rs, a_over_Rs, temperature=None):
         if temperature is None:
             irrad = self.redist_factors[surface_type] * xp.trapz(stellar_fluxes / a_over_Rs**2, self.atm.lambda_grid)
             if irrad < self.crust_emission_flux[surface_type].data[0] or irrad > self.crust_emission_flux[surface_type].data[-1]:
                 raise ValueError("Cannot compute surface temperature because irradiation is out of range of the data files")
-            
+
             temperature = xp.interp(irrad, xp.array(self.crust_emission_flux[surface_type].data), xp.array(self.crust_emission_flux["Temperature [K]"]))
 
         hemi_reflectance = xp.interp(self.atm.lambda_grid, xp.array(self.hemi_refls["Wavelength"]), xp.array(self.hemi_refls[surface_type]))
@@ -60,15 +60,15 @@ class EclipseDepthCalculator:
         reflected_fluxes = stellar_fluxes  / a_over_Rs**2 * hemi_reflectance
         fluxes = emitted_fluxes + reflected_fluxes
         return fluxes
-        
+
     def _exp3(self, x):
         shape = x.shape
         result = xp.interp(x.flatten(), self.tau_cache, self.exp3_cache,
                            left=0.5, right=0
                            )
         return result.reshape(shape)
-        
-    def change_wavelength_bins(self, bins):        
+
+    def change_wavelength_bins(self, bins):
         '''Same functionality as :func:`~platon.transit_depth_calculator.TransitDepthCalculator.change_wavelength_bins`'''
         self.atm.change_wavelength_bins(bins)
 
@@ -100,10 +100,10 @@ class EclipseDepthCalculator:
         else:
             assert(False)
 
-        
+
         if self.atm.wavelength_bins is None:
             return intermediate_lambdas, intermediate_depths, intermediate_lambdas, intermediate_depths
-        
+
         binned_wavelengths = []
         binned_depths = []
         intermediate_stellar_photon_spectrum = intermediate_stellar_spectrum / (h * c / intermediate_lambdas)
@@ -115,17 +115,17 @@ class EclipseDepthCalculator:
             binned_depth = xp.average(intermediate_depths[cond],
                                       weights=intermediate_stellar_photon_spectrum[cond])
             binned_depths.append(binned_depth)
-            
+
         return intermediate_lambdas, intermediate_depths, xp.array(binned_wavelengths), xp.array(binned_depths)
 
     def _get_photosphere_radii(self, taus, radii):
         intermediate_radii = 0.5 * (radii[0:-1] + radii[1:])
         result = radii[xp.argmin(xp.absolute(xp.log(taus)), axis=1)]
         return result
-              
+
     def compute_depths(self, t_p_profile, star_radius, planet_mass,
                        planet_radius, T_star, logZ=0, CO_ratio=0.53, CH4_mult=1,
-                       gases=None, vmrs=None,
+                       gases=None, vmrs=None, ref_pressure=1e5, 
                        add_gas_absorption=True, add_H_minus_absorption=False,
                        add_scattering=True, scattering_factor=1,
                        scattering_slope=4, scattering_ref_wavelength=1e-6,
@@ -148,7 +148,7 @@ class EclipseDepthCalculator:
         T_profile = t_p_profile.temperatures
         P_profile = t_p_profile.pressures
         bot_pressure = min(cloudtop_pressure, surface_pressure)
-        
+
         atm_info = self.atm.compute_params(
             star_radius, planet_mass, planet_radius, P_profile, T_profile,
             logZ, CO_ratio, CH4_mult, gases, vmrs, add_gas_absorption, add_H_minus_absorption, add_scattering,
@@ -176,7 +176,7 @@ class EclipseDepthCalculator:
         padded_taus[:, 1:] = taus
         integrand = planck_function * xp.diff(self._exp3(padded_taus), axis=1)
         fluxes = -2 * xp.pi * xp.sum(integrand, axis=1)
-                
+
         if not xp.isinf(cloudtop_pressure) and cloudtop_pressure < surface_pressure:
             max_taus = taus.max(axis=1)
             fluxes_from_cloud = xp.pi * planck_function[:, -1] * (max_taus**2 * expn(1, max_taus) - max_taus * xp.exp(-max_taus) + xp.exp(-max_taus))
@@ -188,7 +188,7 @@ class EclipseDepthCalculator:
             surface_flux = self.calc_surface_flux(surface_type, stellar_fluxes, planet_radius / star_radius, semimajor_axis / star_radius, surface_temp)
             max_taus = taus.max(axis=1)
             fluxes += surface_flux * (max_taus**2 * expn(1, max_taus) - max_taus * xp.exp(-max_taus) + xp.exp(-max_taus))
-        
+
         photosphere_radii = self._get_photosphere_radii(taus, atm_info["radii"])
         eclipse_depths = fluxes / stellar_fluxes * (photosphere_radii/star_radius)**2
         #For correlated k, eclipse_depths has n_gauss points per wavelength, while unbinned_depths has 1 point per wavelength
@@ -201,14 +201,14 @@ class EclipseDepthCalculator:
             atm_info["unbinned_eclipse_depths"] = unbinned_depths
             atm_info["taus"] = taus
             atm_info["contrib"] = -integrand / fluxes[:, xp.newaxis]
-            
+
             for key in atm_info:
                 if type(atm_info[key]) == dict:
                     for subkey in atm_info[key]:
                         atm_info[key][subkey] = xp.cpu(atm_info[key][subkey])
                 else:
                     atm_info[key] = xp.cpu(atm_info[key])
-                
+
             return xp.cpu(binned_wavelengths), xp.cpu(binned_depths), atm_info
 
         return xp.cpu(binned_wavelengths), xp.cpu(binned_depths), None

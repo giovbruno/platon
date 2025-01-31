@@ -20,6 +20,7 @@ from ._interpolator_3D import regular_grid_interp, interp1d
 
 class AtmosphereSolver:
     def __init__(self, include_condensation=True, ref_pressure=1e5, method='xsec', include_opacities=[], downsample=1):
+
         self.arguments = locals()
         del self.arguments["self"]
 

@@ -537,12 +537,14 @@ class CombinedRetriever:
         eclipse_calc = None
         if transit_bins is not None:
             transit_calc = TransitDepthCalculator(
-                include_condensation=include_condensation, method=rad_method)
+                include_condensation=include_condensation, method=rad_method,
+                ref_pressure=fit_info.all_params['ref_pressure'].best_guess)
             transit_calc.change_wavelength_bins(transit_bins)
             self._validate_params(fit_info, transit_calc)
         if eclipse_bins is not None:
             eclipse_calc = EclipseDepthCalculator(
-                include_condensation=include_condensation, method=rad_method)
+                include_condensation=include_condensation, method=rad_method,
+                ref_pressure=fit_info.all_params['ref_pressure'].best_guess)
             eclipse_calc.change_wavelength_bins(eclipse_bins)
 
         def transform_prior(cube):
