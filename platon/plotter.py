@@ -6,9 +6,12 @@ from .retrieval_result import RetrievalResult
 from . TP_profile import Profile
 from . import _cupy_numpy as xp
 import dynesty
+import rebin
+
+from pdb import set_trace
 
 default_style = ['default',
-    {   'font.size': 12,
+    {   'font.size': 14,
         'xtick.top': True,
         'xtick.direction': 'out',
         'ytick.right': True,
@@ -73,7 +76,7 @@ class Plotter():
         plt.legend()
         plt.tight_layout()
         if prefix is not None:
-            plt.savefig(prefix + "_retrieved_temp_profiles.png")
+            plt.savefig(prefix + "_retrieved_temp_profiles.pdf")
 
 
     def plot_retrieval_corner(self, retrieval_result, filename=None, **args):
@@ -81,21 +84,53 @@ class Plotter():
         Input a RetrievalResult object to make a corner plot for the
         posteriors of the fitted parameters.
         """
+
+        import matplotlib as mpl
+        mpl.rcParams['axes.labelsize'] = 16
+        mpl.rcParams['axes.titlelocation'] = 'right'
+
+        # Divide Rp by RJ
+        labels = np.array(retrieval_result.fit_info.fit_param_names)
+        lab = np.where(labels == 'Rp')[0][0]
+        # If results were obtained with pymultinest
+        if 'equal_samples' in dir(retrieval_result):
+            retrieval_result.equal_samples[:, lab] /= R_jup
+        labels[lab] = r'Rp/Rj'
+
+        # Get nicer labels
+        lab = np.where(labels == 'cloudtop_pressure')[0][0]
+        labels[lab] = 'log Pc'
+
+        lab = np.where(labels == 'CO_ratio')[0][0]
+        labels[lab] = 'C/O'
+
+        lab = np.where(labels == 'scatt_factor')[0][0]
+        labels[lab] = 'scatt. factor'
+
+        lab = np.where(labels == 'scatt_slope')[0][0]
+        labels[lab] = 'scatt. slope'
+
+        newlabels = [s.replace('_', ' ') for s in labels]
+
         assert(isinstance(retrieval_result, RetrievalResult))
         if retrieval_result.retrieval_type == "dynesty":
             fig = corner.corner(retrieval_result.samples, weights=retrieval_result.weights,
                                 range=[0.99] * retrieval_result.samples.shape[1],
-                                show_titles=True,
-                                labels=retrieval_result.fit_info.fit_param_names, **args)
+                                show_titles=True, title_kwargs={'fontsize':20,
+                                'loc':'left'}, quantiles=[0.16, 0.50, 0.84],
+                                smooth1d=3, plot_contours=False,
+                                labels=newlabels, **args)
         elif retrieval_result.retrieval_type == "pymultinest":
             fig = corner.corner(retrieval_result.equal_samples,
                                 range=[0.99] * retrieval_result.equal_samples.shape[1],
-                                show_titles=True,
-                                labels=retrieval_result.fit_info.fit_param_names, **args)
+                                show_titles=True, title_kwargs={'fontsize':20,
+                                'loc':'left'}, quantiles=[0.16, 0.50, 0.84],
+                                smooth1d=3, plot_contours=False,
+                                labels=newlabels, **args)
         elif retrieval_result.retrieval_type == "emcee":
             fig = corner.corner(retrieval_result.flatchain,
                                 range=[0.99] * retrieval_result.flatchain.shape[1],
-                                labels=retrieval_result.fit_info.fit_param_names, **args)
+                                labels=newlabels, **args)
         else:
             assert(False)
 
@@ -103,7 +138,8 @@ class Plotter():
             fig.savefig(filename)
 
 
-    def plot_retrieval_transit_spectrum(self, retrieval_result, prefix=None):
+    def plot_retrieval_transit_spectrum(self, retrieval_result, prefix=None,
+            plot_best_fit=False, bin_spectrum=100):
         """
         Input a RetrievalResult object to make a plot of the data,
         best fit transit model both at native resolution and data's resolution,
@@ -112,35 +148,52 @@ class Plotter():
         assert(isinstance(retrieval_result, RetrievalResult))
         assert(retrieval_result.transit_bins is not None)
 
-        plt.figure(figsize=(16,6))
         lower_spectrum = np.percentile(retrieval_result.random_transit_depths, 16, axis=0)
         upper_spectrum = np.percentile(retrieval_result.random_transit_depths, 84, axis=0)
-        plt.fill_between(METRES_TO_UM * retrieval_result.best_fit_transit_dict["unbinned_wavelengths"],
-                            lower_spectrum,
-                            upper_spectrum,
+        median_spectrum = np.percentile(retrieval_result.random_transit_depths, 50, axis=0)
+
+        if bin_spectrum is not None:
+            wlbin = rebin.rebin(retrieval_result.best_fit_transit_dict["unbinned_wavelengths"], bin_spectrum)
+            lower_spectrum = rebin.rebin(lower_spectrum, bin_spectrum)
+            upper_spectrum = rebin.rebin(upper_spectrum, bin_spectrum)
+            median_spectrum = rebin.rebin(median_spectrum, bin_spectrum)
+        else:
+            wlbin = retrieval_result.best_fit_transit_dict["unbinned_wavelengths"]
+
+        fig, ax = plt.subplots()
+        ax.fill_between(METRES_TO_UM * wlbin, lower_spectrum*1e6, upper_spectrum*1e6,
                             color="#f2c8c4", zorder=2)
-        plt.plot(METRES_TO_UM * retrieval_result.best_fit_transit_dict["unbinned_wavelengths"],
+        if plot_best_fit:
+            ax.plot(METRES_TO_UM * retrieval_result.best_fit_transit_dict["unbinned_wavelengths"],
                     retrieval_result.best_fit_transit_dict["unbinned_depths"] *
-                    retrieval_result.best_fit_transit_dict['unbinned_correction_factors'],
-                    color='r', label="Calculated (unbinned)", zorder=3)
-        plt.errorbar(METRES_TO_UM * retrieval_result.transit_wavelengths,
-                        retrieval_result.transit_depths,
-                        yerr = retrieval_result.transit_errors,
+                    retrieval_result.best_fit_transit_dict['unbinned_correction_factors']*1e6,
+                    color='r', label="Calculated", zorder=3)
+        else:
+            ax.plot(METRES_TO_UM * wlbin,
+                    median_spectrum*1e6, color='r', label="Calculated (binned)",
+                    zorder=3)
+        ax.errorbar(METRES_TO_UM * retrieval_result.transit_wavelengths,
+                        retrieval_result.transit_depths*1e6,
+                        yerr = retrieval_result.transit_errors*1e6,
                         fmt='.', color='k', label="Observed", zorder=5)
-        plt.scatter(METRES_TO_UM * retrieval_result.transit_wavelengths,
-                    retrieval_result.best_fit_transit_depths,
+        if bin_spectrum is None:
+            ax.scatter(METRES_TO_UM * retrieval_result.transit_wavelengths,
+                    retrieval_result.best_fit_transit_depths*1e6,
                     color='b', label="Calculated (binned)", zorder=4)
 
-        plt.xlabel("Wavelength ($\mu m$)")
-        plt.ylabel("Transit depth")
-        plt.xscale('log')
+        ax.set_xlabel("Wavelength ($\mu m$)")
+        ax.set_ylabel("Transit depth [ppm]")
+        ax.set_xscale('log')
+        ax.xaxis.set_ticks([0.5, 1, 2, 3, 4, 5], \
+                labels=['0.5', '1', '2', '3', '4', '5'])
         plt.tight_layout()
         plt.legend()
         if prefix is not None:
-            plt.savefig(prefix + "_transit.png")
+            plt.savefig(prefix + "_best_fit.pdf")
 
 
-    def plot_retrieval_eclipse_spectrum(self, retrieval_result, prefix=None):
+    def plot_retrieval_eclipse_spectrum(self, retrieval_result, prefix=None,
+            plot_best_fit=False, bin_spectrum=100):
         """
         Input a RetrievalResult object to make a plot of the data,
         best fit eclipse model both at native resolution and data's resolution,
@@ -149,31 +202,48 @@ class Plotter():
         assert(isinstance(retrieval_result, RetrievalResult))
         assert(retrieval_result.eclipse_bins is not None)
 
-        plt.figure(figsize=(16,6))
         lower_spectrum = np.percentile(retrieval_result.random_eclipse_depths, 16, axis=0)
         upper_spectrum = np.percentile(retrieval_result.random_eclipse_depths, 84, axis=0)
-        plt.fill_between(METRES_TO_UM * retrieval_result.best_fit_eclipse_dict["unbinned_wavelengths"],
-                            lower_spectrum,
-                            upper_spectrum,
+        median_spectrum = np.percentile(retrieval_result.random_eclipse_depths, 50, axis=0)
+
+        if bin_spectrum is not None:
+            wlbin = rebin.rebin(retrieval_result.best_fit_eclipse_dict["unbinned_wavelengths"], bin_spectrum)
+            lower_spectrum = rebin.rebin(lower_spectrum, bin_spectrum)
+            upper_spectrum = rebin.rebin(upper_spectrum, bin_spectrum)
+            median_spectrum = rebin.rebin(median_spectrum, bin_spectrum)
+        else:
+            wlbin = retrieval_result.best_fit_eclipse_dict["unbinned_wavelengths"]
+
+        fig, ax = plt.subplots()
+        ax.fill_between(METRES_TO_UM * wlbin, lower_spectrum*1e6, upper_spectrum*1e6,
                             color="#f2c8c4")
-        plt.plot(METRES_TO_UM * retrieval_result.best_fit_eclipse_dict["unbinned_wavelengths"],
-                    retrieval_result.best_fit_eclipse_dict["unbinned_eclipse_depths"],
+
+        if plot_best_fit:
+            ax.plot(METRES_TO_UM * retrieval_result.best_fit_eclipse_dict["unbinned_wavelengths"]*1e6,
+                    retrieval_result.best_fit_eclipse_dict["unbinned_eclipse_depths"]*1e6,
                     alpha=0.4, color='r', label="Calculated (unbinned)")
-        plt.errorbar(METRES_TO_UM * retrieval_result.eclipse_wavelengths,
-                        retrieval_result.eclipse_depths,
-                        yerr=retrieval_result.eclipse_errors,
+        else:
+            ax.plot(METRES_TO_UM * wlbin,
+                    median_spectrum*1e6, color='r', label="Calculated",
+                    zorder=3)
+        ax.errorbar(METRES_TO_UM * retrieval_result.eclipse_wavelengths,
+                        retrieval_result.eclipse_depths*1e6,
+                        yerr=retrieval_result.eclipse_errors*1e6,
                         fmt='.', color='k', label="Observed")
-        plt.scatter(METRES_TO_UM * retrieval_result.eclipse_wavelengths,
-                    retrieval_result.best_fit_eclipse_depths,
+        if bin_spectrum is None:
+            ax.scatter(METRES_TO_UM * retrieval_result.eclipse_wavelengths,
+                    retrieval_result.best_fit_eclipse_depths*1e6,
                     color='r', label="Calculated (binned)")
         plt.legend()
-        plt.xlabel("Wavelength ($\mu m$)")
-        plt.ylabel("Eclipse depth")
-        plt.xscale('log')
+        ax.set_xlabel("Wavelength ($\mu m$)")
+        ax.set_ylabel("Eclipse depth [ppm]")
+        ax.set_xscale('log')
+        ax.xaxis.set_ticks([1, 2, 3, 4, 5], \
+                labels=['1', '2', '3', '4', '5'])
         plt.tight_layout()
         plt.legend()
         if prefix is not None:
-            plt.savefig(prefix + "_eclipse.png")
+            plt.savefig(prefix + "_best_fit.pdf")
 
 
     def plot_optical_depth(self, depth_dict, prefix=None):
