@@ -13,9 +13,9 @@ from pdb import set_trace
 default_style = ['default',
     {   'font.size': 14,
         'xtick.top': True,
-        'xtick.direction': 'out',
+        'xtick.direction': 'in',
         'ytick.right': True,
-        'ytick.direction': 'out',
+        'ytick.direction': 'in',
         }]
 plt.style.use(default_style)
 plt.ion()
@@ -86,29 +86,34 @@ class Plotter():
         """
 
         import matplotlib as mpl
-        mpl.rcParams['axes.labelsize'] = 16
+        mpl.rcParams['axes.labelsize'] = 18
         mpl.rcParams['axes.titlelocation'] = 'right'
 
-        # Divide Rp by RJ
         labels = np.array(retrieval_result.fit_info.fit_param_names)
-        lab = np.where(labels == 'Rp')[0][0]
-        # If results were obtained with pymultinest
-        if 'equal_samples' in dir(retrieval_result):
-            retrieval_result.equal_samples[:, lab] /= R_jup
-        labels[lab] = r'Rp/Rj'
+        # Divide Rp by RJ
+        if 'Rp' in labels:
+            lab = np.where(labels == 'Rp')[0][0]
+            # If results were obtained with pymultinest
+            if 'equal_samples' in dir(retrieval_result):
+                retrieval_result.equal_samples[:, lab] /= R_jup
+            labels[lab] = r'Rp/Rj'
 
         # Get nicer labels
-        lab = np.where(labels == 'cloudtop_pressure')[0][0]
-        labels[lab] = 'log Pc'
+        if 'cloudtop_pressure' in labels:
+            lab = np.where(labels == 'cloudtop_pressure')[0][0]
+            labels[lab] = 'log Pc'
 
-        lab = np.where(labels == 'CO_ratio')[0][0]
-        labels[lab] = 'C/O'
+        if 'CO_ratio' in labels:
+            lab = np.where(labels == 'CO_ratio')[0][0]
+            labels[lab] = 'C/O'
 
-        lab = np.where(labels == 'scatt_factor')[0][0]
-        labels[lab] = 'scatt. factor'
+        if 'scatt_factor' in labels:
+            lab = np.where(labels == 'scatt_factor')[0][0]
+            labels[lab] = 'scatt. factor'
 
-        lab = np.where(labels == 'scatt_slope')[0][0]
-        labels[lab] = 'scatt. slope'
+        if 'scatt_slope' in labels:
+            lab = np.where(labels == 'scatt_slope')[0][0]
+            labels[lab] = 'scatt. slope'
 
         newlabels = [s.replace('_', ' ') for s in labels]
 
@@ -116,14 +121,14 @@ class Plotter():
         if retrieval_result.retrieval_type == "dynesty":
             fig = corner.corner(retrieval_result.samples, weights=retrieval_result.weights,
                                 range=[0.99] * retrieval_result.samples.shape[1],
-                                show_titles=True, title_kwargs={'fontsize':20,
+                                show_titles=True, title_kwargs={'fontsize':18,
                                 'loc':'left'}, quantiles=[0.16, 0.50, 0.84],
                                 smooth1d=3, plot_contours=False,
                                 labels=newlabels, **args)
         elif retrieval_result.retrieval_type == "pymultinest":
             fig = corner.corner(retrieval_result.equal_samples,
                                 range=[0.99] * retrieval_result.equal_samples.shape[1],
-                                show_titles=True, title_kwargs={'fontsize':20,
+                                show_titles=True, title_kwargs={'fontsize':18,
                                 'loc':'left'}, quantiles=[0.16, 0.50, 0.84],
                                 smooth1d=3, plot_contours=False,
                                 labels=newlabels, **args)
@@ -139,7 +144,7 @@ class Plotter():
 
 
     def plot_retrieval_transit_spectrum(self, retrieval_result, prefix=None,
-            plot_best_fit=False, bin_spectrum=100):
+            plot_best_fit=False, bin_spectrum=100, cmodel='r'):
         """
         Input a RetrievalResult object to make a plot of the data,
         best fit transit model both at native resolution and data's resolution,
@@ -161,21 +166,21 @@ class Plotter():
             wlbin = retrieval_result.best_fit_transit_dict["unbinned_wavelengths"]
 
         fig, ax = plt.subplots()
-        ax.fill_between(METRES_TO_UM * wlbin, lower_spectrum*1e6, upper_spectrum*1e6,
-                            color="#f2c8c4", zorder=2)
         if plot_best_fit:
             ax.plot(METRES_TO_UM * retrieval_result.best_fit_transit_dict["unbinned_wavelengths"],
                     retrieval_result.best_fit_transit_dict["unbinned_depths"] *
                     retrieval_result.best_fit_transit_dict['unbinned_correction_factors']*1e6,
-                    color='r', label="Calculated", zorder=3)
+                    color=cmodel, label="Calculated", zorder=3)
         else:
             ax.plot(METRES_TO_UM * wlbin,
-                    median_spectrum*1e6, color='r', label="Calculated (binned)",
+                    median_spectrum*1e6, color=cmodel, label="Calculated",
                     zorder=3)
+        ax.fill_between(METRES_TO_UM * wlbin, lower_spectrum*1e6, upper_spectrum*1e6,
+                        color=cmodel, alpha=0.3, zorder=2)
         ax.errorbar(METRES_TO_UM * retrieval_result.transit_wavelengths,
                         retrieval_result.transit_depths*1e6,
                         yerr = retrieval_result.transit_errors*1e6,
-                        fmt='.', color='k', label="Observed", zorder=5)
+                        fmt='.', color='k', capsize=2, label="Observed", zorder=5)
         if bin_spectrum is None:
             ax.scatter(METRES_TO_UM * retrieval_result.transit_wavelengths,
                     retrieval_result.best_fit_transit_depths*1e6,
@@ -193,7 +198,8 @@ class Plotter():
 
 
     def plot_retrieval_eclipse_spectrum(self, retrieval_result, prefix=None,
-            plot_best_fit=False, bin_spectrum=100):
+            plot_best_fit=False, bin_spectrum=100, add_points=[], label_points='',
+            color_points='b', cmodel='r'):
         """
         Input a RetrievalResult object to make a plot of the data,
         best fit eclipse model both at native resolution and data's resolution,
@@ -215,25 +221,27 @@ class Plotter():
             wlbin = retrieval_result.best_fit_eclipse_dict["unbinned_wavelengths"]
 
         fig, ax = plt.subplots()
-        ax.fill_between(METRES_TO_UM * wlbin, lower_spectrum*1e6, upper_spectrum*1e6,
-                            color="#f2c8c4")
-
         if plot_best_fit:
             ax.plot(METRES_TO_UM * retrieval_result.best_fit_eclipse_dict["unbinned_wavelengths"]*1e6,
                     retrieval_result.best_fit_eclipse_dict["unbinned_eclipse_depths"]*1e6,
-                    alpha=0.4, color='r', label="Calculated (unbinned)")
+                    alpha=0.4, color=cmodel, label="Calculated (unbinned)")
         else:
             ax.plot(METRES_TO_UM * wlbin,
-                    median_spectrum*1e6, color='r', label="Calculated",
+                    median_spectrum*1e6, color=cmodel, label="Calculated",
                     zorder=3)
+        ax.fill_between(METRES_TO_UM * wlbin, lower_spectrum*1e6, upper_spectrum*1e6,
+                            color=cmodel, alpha=0.3, zorder=2)
         ax.errorbar(METRES_TO_UM * retrieval_result.eclipse_wavelengths,
                         retrieval_result.eclipse_depths*1e6,
                         yerr=retrieval_result.eclipse_errors*1e6,
-                        fmt='.', color='k', label="Observed")
+                        fmt='.', color='k', capsize=2, label="Observed")
+        ax.errorbar(add_points[0], add_points[1], yerr=add_points[2], fmt='o', \
+                        color=color_points, capsize=2, label=label_points)
+
         if bin_spectrum is None:
             ax.scatter(METRES_TO_UM * retrieval_result.eclipse_wavelengths,
                     retrieval_result.best_fit_eclipse_depths*1e6,
-                    color='r', label="Calculated (binned)")
+                    color='b', label="Calculated (binned)")
         plt.legend()
         ax.set_xlabel("Wavelength ($\mu m$)")
         ax.set_ylabel("Eclipse depth [ppm]")
