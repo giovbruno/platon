@@ -26,10 +26,14 @@ class Plotter():
         pass
 
 
-    def plot_retrieval_TP_profiles(self, retrieval_result, plot_samples=False, plot_1sigma_bounds=True, plot_median=True, num_samples=100, prefix=None):
+    def plot_retrieval_TP_profiles(self, retrieval_result, plot_samples=False,
+        plot_1sigma_bounds=True, plot_median=True, num_samples=100, prefix=None,
+        return_bounds=False):
         """
         Input a RetrievalResult object to make a plot of the best fit temperature profile
         and 1 sigma bounds for the profile and/or plot samples of the temperature profile.
+
+        Return median value and boundaries if return_bounds=True.
         """
         assert(isinstance(retrieval_result, RetrievalResult))
         if retrieval_result.retrieval_type == "dynesty":
@@ -78,6 +82,12 @@ class Plotter():
         if prefix is not None:
             plt.savefig(prefix + "_retrieved_temp_profiles.pdf")
 
+        if return_bounds:
+            outpar = [profile_pressures / BAR_TO_PASCALS,
+                np.percentile(temperature_arr, [16, 50, 84], axis=0)]
+            np.savetxt(prefix + "_retrieved_temp_profiles.txt",
+                np.vstack(outpar).T,
+                header='Pressure/bar\t16perc/K\tMedian/K\t84perc/K')
 
     def plot_retrieval_corner(self, retrieval_result, filename=None, **args):
         """
@@ -144,7 +154,7 @@ class Plotter():
 
 
     def plot_retrieval_transit_spectrum(self, retrieval_result, prefix=None,
-            plot_best_fit=False, bin_spectrum=100, cmodel='r'):
+            plot_best_fit=False, bin_spectrum=100, cmodel='r', print_results=False):
         """
         Input a RetrievalResult object to make a plot of the data,
         best fit transit model both at native resolution and data's resolution,
@@ -196,10 +206,17 @@ class Plotter():
         if prefix is not None:
             plt.savefig(prefix + "_best_fit.pdf")
 
+        if print_results:
+            outpar = [METRES_TO_UM * wlbin, lower_spectrum*1e6,
+                    median_spectrum*1e6, upper_spectrum*1e6]
+            np.savetxt(prefix + "_spectrum_confidence.txt",
+                np.vstack(outpar).T,
+                header='Wl [um]\t16perc [ppm]\tMedian [ppm]\t84perc [ppm]')
+
 
     def plot_retrieval_eclipse_spectrum(self, retrieval_result, prefix=None,
             plot_best_fit=False, bin_spectrum=100, add_points=[], label_points='',
-            color_points='b', cmodel='r'):
+            color_points='b', cmodel='r', print_results=False):
         """
         Input a RetrievalResult object to make a plot of the data,
         best fit eclipse model both at native resolution and data's resolution,
@@ -235,8 +252,9 @@ class Plotter():
                         retrieval_result.eclipse_depths*1e6,
                         yerr=retrieval_result.eclipse_errors*1e6,
                         fmt='.', color='k', capsize=2, label="Observed")
-        ax.errorbar(add_points[0], add_points[1], yerr=add_points[2], fmt='o', \
-                        color=color_points, capsize=2, label=label_points)
+        if len(add_points) > 0:
+            ax.errorbar(add_points[0], add_points[1], yerr=add_points[2], \
+                fmt='o', color=color_points, capsize=2, label=label_points)
 
         if bin_spectrum is None:
             ax.scatter(METRES_TO_UM * retrieval_result.eclipse_wavelengths,
@@ -252,6 +270,13 @@ class Plotter():
         plt.legend()
         if prefix is not None:
             plt.savefig(prefix + "_best_fit.pdf")
+
+        if print_results:
+            outpar = [METRES_TO_UM * wlbin, lower_spectrum*1e6,
+                    median_spectrum*1e6, upper_spectrum*1e6]
+            np.savetxt(prefix + "_spectrum_confidence.txt",
+                np.vstack(outpar).T,
+                header='Wl [um]\t16perc [ppm]\tMedian [ppm]\t84perc [ppm]')
 
 
     def plot_optical_depth(self, depth_dict, prefix=None):
@@ -283,7 +308,8 @@ class Plotter():
             plt.savefig(prefix + fname + "_optical_depth.png")
 
 
-    def plot_eclipse_contrib_func(self, eclipse_depth_dict, log_scale=False, prefix=None):
+    def plot_eclipse_contrib_func(self, eclipse_depth_dict, log_scale=False,
+            prefix=None):
         """
         Input an eclipse depth dictionary created by the EclipseDepthCalculator
         to plot emission contribution function as a function of wavelength and pressure.
@@ -301,7 +327,6 @@ class Plotter():
         plt.figure(figsize=(6,4))
         plt.contourf(eclipse_depth_dict['unbinned_wavelengths'] * METRES_TO_UM,
                          np.log10(0.5 * (eclipse_depth_dict['P_profile'][1:] + eclipse_depth_dict['P_profile'][:-1]) / BAR_TO_PASCALS), contrib_func, cmap='magma_r', vmin=np.nanmin(contrib_func), vmax=np.nanmax(contrib_func))
-
         cbar = plt.colorbar(location='right')
         if log_scale:cbar.set_label('log (Contribution function)')
         else:cbar.set_label('Contribution function')
